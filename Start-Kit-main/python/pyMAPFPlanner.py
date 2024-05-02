@@ -84,17 +84,17 @@ class pyMAPFPlanner:
     def space_time_plan(self,start: int, start_direct: int, end: int, reservation: Set[Tuple[int, int, int]]) -> List[Tuple[int, int]]:
         print(start, start_direct, end)
         path = []
-        open_list = PriorityQueueBinaryHeap()
+        open_list = PriorityQueue()
         all_nodes = {}  # loc+dict, t
         parent={}
-
         s = (start, start_direct, 0, self.getManhattanDistance(start, end))
-        open_list.push([s[3], id(s), s])
+        open_list.put((s[3], id(s), s))
         # all_nodes[(start * 4 + start_direct, 0)] = s
         parent[(start * 4 + start_direct, 0)]=None
 
-        while not open_list.is_empty():
-            n=open_list.pop()
+        while not open_list.empty():
+            n=open_list.get()
+            # print("n=",n)
             _, _, curr = n
         
             curr_location, curr_direction, curr_g, _ = curr
@@ -135,7 +135,7 @@ class pyMAPFPlanner:
                     next_node = (neighbor_location, neighbor_direction, curr_g + 1,
                                 self.getManhattanDistance(neighbor_location, end))
         
-                    open_list.push(
+                    open_list.put(
                         (next_node[3] + next_node[2], id(next_node), next_node))
                 
                     parent[(neighbor_location * 4 +
@@ -181,7 +181,7 @@ class pyMAPFPlanner:
                     self.env.goal_locations[i][0][0],
                     reservation
                 )
-
+            
             if path:
                 print("current location:", path[0][0], "current direction:", path[0][1])
                 if path[0][0] != self.env.curr_states[i].location:
@@ -202,6 +202,7 @@ class pyMAPFPlanner:
                         if (p[0], t) in reservation:
                             # Conflict detected
                             conflicts.add((i, t))
+
                     last_loc = p[0]
                     t += 1
 
@@ -212,65 +213,7 @@ class pyMAPFPlanner:
                         actions[agent_id] = MAPF.Action.W
 
         return actions
-    
-class PriorityQueueBinaryHeap:
-    def __init__(self):
-        self.heap = []
-
-    def push(self, item):
-        self.heap.append(item)
-        self._percolate_up(len(self.heap) - 1)
-
-    def pop(self):
-        if len(self.heap) == 0:
-            raise IndexError("pop from an empty priority queue")
-        if len(self.heap) == 1:
-            return self.heap.pop()
-
-        top_item = self.heap[0]
-        self.heap[0] = self.heap.pop()
-        self._percolate_down(0)
-        return top_item
-
-    def _percolate_up(self, index):
-        while index > 0:
-            parent_index = (index - 1) // 2
-            if self.heap[index] < self.heap[parent_index]:
-                self.heap[index], self.heap[parent_index] = self.heap[parent_index], self.heap[index]
-                index = parent_index
-            else:
-                break
-
-    def _percolate_down(self, index):
-        while True:
-            left_child_index = 2 * index + 1
-            right_child_index = 2 * index + 2
-            smallest = index
-
-            if left_child_index < len(self.heap) and self.heap[left_child_index] < self.heap[smallest]:
-                smallest = left_child_index
-            if right_child_index < len(self.heap) and self.heap[right_child_index] < self.heap[smallest]:
-                smallest = right_child_index
-
-            if smallest != index:
-                self.heap[index], self.heap[smallest] = self.heap[smallest], self.heap[index]
-                index = smallest
-            else:
-                break
-
-    def is_empty(self):
-        return len(self.heap) == 0
-
-    def peek(self):
-        if len(self.heap) == 0:
-            raise IndexError("peek from an empty priority queue")
-        return self.heap[0]
-
-    def __len__(self):
-        return len(self.heap)
-
-
 
 if __name__ == "__main__":
     test_planner = pyMAPFPlanner()
-    test_planner.initialize(20)
+    test_planner.initialize(100)
