@@ -41,6 +41,71 @@ class pyMAPFPlanner:
         # print("env.rows=",self.env.rows,"env.cols=",self.env.cols,"env.map=",self.env.map)
         # raise NotImplementedError("YOU NEED TO IMPLEMENT THE PYMAPFPLANNER!")
 
+    def naive_a_star(self,time_limit):
+        print("I am planning")
+        actions = [MAPF.Action.W for i in range(len(self.env.curr_states))]
+        for i in range(0, self.env.num_of_agents):
+            print("python start plan for agent ", i, end=" ")
+            path = []
+            if len(self.env.goal_locations[i]) == 0:
+                print(i, " does not have any goal left", end=" ")
+                path.append(
+                    (self.env.curr_states[i].location, self.env.curr_states[i].orientation))
+            else:
+                print(" with start and goal: ", end=" ")
+                path = self.single_agent_plan(
+                    self.env.curr_states[i].location, self.env.curr_states[i].orientation, self.env.goal_locations[i][0][0])
+
+            print("current location:", path[0][0],
+                  "current direction: ", path[0][1])
+            if path[0][0] != self.env.curr_states[i].location:
+                actions[i] = MAPF.Action.FW
+            elif path[0][1] != self.env.curr_states[i].orientation:
+                incr = path[0][1]-self.env.curr_states[i].orientation
+                if incr == 1 or incr == -3:
+                    actions[i] = MAPF.Action.CR
+                elif incr == -1 or incr == 3:
+                    actions[i] = MAPF.Action.CCR
+        # print(actions)
+        actions = [int(a) for a in actions]
+        # print(actions)
+        return np.array(actions, dtype=int)
+
+    def single_agent_plan(self, start: int, start_direct: int, end: int):
+        print(start, start_direct, end)
+        path = []
+        # AStarNode (u,dir,t,f)
+        open_list = PriorityQueue()
+        s = (start, start_direct, 0, self.getManhattanDistance(start, end))
+        open_list.put([0, s])
+        all_nodes = dict()
+        close_list = set()
+        parent = {(start, start_direct): None}
+        all_nodes[start*4+start_direct] = s
+        while not open_list.empty():
+            curr = (open_list.get())[1]
+            close_list.add(curr[0]*4+curr[1])
+            if curr[0] == end:
+                curr = (curr[0], curr[1])
+                while curr != None:
+                    path.append(curr)
+                    curr = parent[curr]
+                path.pop()
+                path.reverse()
+
+                break
+            neighbors = self.getNeighbors(curr[0], curr[1])
+            # print("neighbors=",neighbors)
+            for neighbor in neighbors:
+                if (neighbor[0]*4+neighbor[1]) in close_list:
+                    continue
+                next_node = (neighbor[0], neighbor[1], curr[2]+1,
+                             self.getManhattanDistance(neighbor[0], end))
+                parent[(next_node[0], next_node[1])] = (curr[0], curr[1])
+                open_list.put([next_node[3]+next_node[2], next_node])
+        print(path)
+        return path
+    
     def getManhattanDistance(self, loc1: int, loc2: int) -> int:
         loc1_x = loc1//self.env.cols
         loc1_y = loc1 % self.env.cols
