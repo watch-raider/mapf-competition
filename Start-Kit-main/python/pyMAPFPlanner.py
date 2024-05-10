@@ -7,9 +7,19 @@ import numpy as np
 # 0=Action.FW, 1=Action.CR, 2=Action.CCR, 3=Action.W
 
 class pyMAPFPlanner:
+
+    reservation = dict()  # { (loc1, loc2, t) : agent_id }
+    agent_map = dict()
+    conflicts = set()
+
     def __init__(self, pyenv=None) -> None:
         if pyenv is not None:
             self.env = pyenv.env
+
+        self.paths = []
+        self.agent_map = dict()
+        self.vertex_conflict = []
+        self.edge_conflict = []
 
         print("pyMAPFPlanner created!  python debug")
 
@@ -20,10 +30,26 @@ class pyMAPFPlanner:
             preprocess_time_limit (_type_): _description_
         """
         pass
+
+        print(self.env.rows)
+        print(self.env.cols)
+        print(self.env.num_of_agents)
+
+        for a in range(self.env.num_of_agents):
+            self.paths.append([])
+
         # testlib.test_torch()
         print("planner initialize done... python debug")
         return True
         # raise NotImplementedError()
+
+    def init_agent_map(self):
+        # print("clearing agent map ...")
+
+        self.agent_map.clear()
+        for i in range(self.env.num_of_agents):
+            self.agent_map.update({self.env.curr_states[i].location:i})
+        return
 
     def plan(self, time_limit):
         """_summary_
@@ -216,13 +242,10 @@ class pyMAPFPlanner:
         reservation = set()  # loc1, loc2, t
         conflicts = set()   # Store conflicts as (agent_id, time_step)
 
+        self.init_agent_map()
+
         # Calculate Manhattan distance of each agent from its goal
-        manhattan_distances = []
-        for i in range(self.env.num_of_agents):
-            goal_x, goal_y = self.env.goal_locations[i][0]
-            curr_x, curr_y = self.env.curr_states[i].location // self.env.cols, self.env.curr_states[i].location % self.env.cols
-            manhattan_distance = abs(goal_x - curr_x) + abs(goal_y - curr_y)
-            manhattan_distances.append((i, manhattan_distance))
+        manhattan_distances = [(i, self.getManhattanDistance(self.env.curr_states[i].location, self.env.goal_locations[i][0][0])) for i in range(self.env.num_of_agents)]
 
         # Sort agents based on their Manhattan distances in ascending order
         sorted_agents = [agent_id for agent_id, _ in sorted(manhattan_distances, key=lambda x: x[1])]
@@ -237,6 +260,7 @@ class pyMAPFPlanner:
 
         for i in sorted_agents:
             print("start plan for agent", i)
+            #if self.paths[i] == []:
             path = []
             if self.env.goal_locations[i]:
                 print("with start and goal:")
@@ -246,6 +270,7 @@ class pyMAPFPlanner:
                     self.env.goal_locations[i][0][0],
                     reservation
                 )
+                self.paths[i] = path.copy()
             
             if path:
                 print("current location:", path[0][0], "current direction:", path[0][1])
@@ -264,20 +289,62 @@ class pyMAPFPlanner:
                     reservation.add((p[0], -1, t))
                     if last_loc != -1:
                         reservation.add((last_loc, p[0], t))
-                        if (p[0], t) in reservation:
-                            # Conflict detected
-                            conflicts.add((i, t))
 
                     last_loc = p[0]
                     t += 1
 
-                # Ensure that lower-priority agents do not plan conflicting routes
-                for agent_id, time_step in conflicts:
-                    if manhattan_distances[agent_id][1] > manhattan_distances[i][1]:
-                        # Mark actions as wait (W) for lower-priority agents involved in conflicts
-                        actions[agent_id] = MAPF.Action.W
+        self.vertex_conflict = [0] * len(self.env.map)
+        self.edge_conflict = [-1] * len(self.env.map)
+        found = self.find_conflicts(conflicts)
+
+        while found:
+            for i in conflicts:
+                path = self.paths[i].copy()
+                # remove reservations
+                self.remove_reservations(path)
+                next_orientation = self.env.curr_states[i].orientation + 1
+                if next_orientation > 3: next_orientation = 0
+                path = []
+                path.append((self.env.curr_states[i].location, next_orientation))
+                self.paths[i] = path.copy()
+                self.reserve_path(path,i)
+            found = self.find_conflicts(conflicts)
 
         return actions
+    
+    def find_conflicts(self, conflicts) -> bool:
+        conflicts.clear()
+        found = False
+        surrounding_agents = list()
+        # for i in range(self.num_of_agents) if self.time % 2 == 1 else reversed(range(self.num_of_agents)):
+        for i in range(self.env.num_of_agents):
+            if (self.paths[i] != [] and self.paths[i][0][0] != self.env.curr_states[i].location): # this robot moves
+                location = self.env.curr_states[i].location
+                candidates = [location+1, location+self.env.cols,
+                              location-1, location-self.env.cols]
+                forward = candidates[self.env.curr_states[i].orientation]
+                surrounding_agents.clear()
+                if self.agent_map.get(forward) != None: surrounding_agents.append(self.agent_map.get(forward)) # agent in the target cell
+                if self.agent_map.get(forward+1) != None: surrounding_agents.append(self.agent_map.get(forward+1)) # agents in the surrounding cells
+                if self.agent_map.get(forward+self.env.cols) != None: surrounding_agents.append(self.agent_map.get(forward+self.env.cols)) # agents in the surrounding cells
+                if self.agent_map.get(forward-1) != None: surrounding_agents.append(self.agent_map.get(forward-1)) # agents in the surrounding cells
+                if self.agent_map.get(forward-self.env.cols) != None: surrounding_agents.append(self.agent_map.get(forward-self.env.cols)) # agents in the surrounding cells
+                for agent_j in surrounding_agents:
+                    if agent_j == i:
+                        continue
+                    if ((self.env.curr_states[agent_j].location == forward and  # there is a robot and
+                        ((self.paths[agent_j] == [] or self.paths[agent_j][0][0] == forward) or # that robot does not move
+                         (self.paths[agent_j] != [] and self.paths[agent_j][0][0] == location)) ) or # or moves in the opposite direction
+                        (self.paths[agent_j] != [] and self.paths[agent_j][0][0] == forward)  # or that robot moves to the same place
+                    ):
+                        if (self.paths[agent_j] != [] and self.paths[agent_j][0][0] == location):   # it is an edge conflict
+                            self.edge_conflict[location] = forward
+                        else:              # if not edge conflict then it is a vertex conflict
+                            self.vertex_conflict[forward] = self.vertex_conflict[forward] +1
+                        self.conflicts.add(i)
+                        found = True
+            # if found: break
+        return found
 
 if __name__ == "__main__":
     test_planner = pyMAPFPlanner()
