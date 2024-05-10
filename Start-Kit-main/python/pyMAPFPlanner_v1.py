@@ -3,14 +3,12 @@ import MAPF
 from typing import Dict, List, Tuple,Set
 from queue import PriorityQueue
 import numpy as np
-import copy
 
 # 0=Action.FW, 1=Action.CR, 2=Action.CCR, 3=Action.W
 
-
 class pyMAPFPlanner:
 
-    reservation = dict()  # { (loc1, loc2, t) : agent_id }
+    # reservation = dict()  # { (loc1, loc2, t) : agent_id }
     agent_map = dict()
     conflicts = set()
 
@@ -32,16 +30,13 @@ class pyMAPFPlanner:
         Args:
             preprocess_time_limit (_type_): _description_
         """
-        # pass
-
-        #self.env.initialize()
-        
+        pass
 
         print(self.env.rows)
         print(self.env.cols)
         print(self.env.num_of_agents)
 
-        for i in range(0, self.env.num_of_agents):
+        for a in range(self.env.num_of_agents):
             self.paths.append([])
 
         # testlib.test_torch()
@@ -52,14 +47,8 @@ class pyMAPFPlanner:
     def init_agent_map(self):
         # print("clearing agent map ...")
 
-        # Calculate Manhattan distance of each agent from its goal
-        manhattan_distances = [(i, self.getManhattanDistance(self.env.curr_states[i].location, self.env.goal_locations[i][0][0])) for i in range(self.env.num_of_agents)]
-
-        # Sort agents based on their Manhattan distances in ascending order
-        sorted_agents = [agent_id for agent_id, _ in sorted(manhattan_distances, key=lambda x: x[1])]
-
         self.agent_map.clear()
-        for i in sorted_agents:
+        for i in range(self.env.num_of_agents):
             self.agent_map.update({self.env.curr_states[i].location:i})
         return
 
@@ -145,7 +134,7 @@ class pyMAPFPlanner:
                 open_list.put([next_node[3]+next_node[2], next_node])
         print(path)
         return path
-
+    
     def getManhattanDistance(self, loc1: int, loc2: int) -> int:
         loc1_x = loc1//self.env.cols
         loc1_y = loc1 % self.env.cols
@@ -156,7 +145,7 @@ class pyMAPFPlanner:
     def validateMove(self, loc: int, loc2: int) -> bool:
         loc_x = loc//self.env.cols
         loc_y = loc % self.env.cols
-        if(loc_x < 0 or loc_x >= self.env.rows or loc_y < 0 or loc_y >= self.env.cols or self.env.map[loc] == 1):
+        if(loc_x >= self.env.rows or loc_y >= self.env.cols or self.env.map[loc] == 1):
             return False
         loc2_x = loc2//self.env.cols
         loc2_y = loc2 % self.env.cols
@@ -186,11 +175,10 @@ class pyMAPFPlanner:
         # print("debug!!!!!!!", neighbors)
         return neighbors
 
-    def space_time_plan(self,start: int, start_direct: int, end: int, reservation )-> Tuple[List[Tuple[int, int]] , int]:
-        # print(start, start_direct, end)
-        max_agent = -1
-        conflicting_agents = {} # (agent, number of conflicts)
+    def space_time_plan(self,start: int, start_direct: int, end: int, reservation: Set[Tuple[int, int, int]]) -> List[Tuple[int, int]]:
+        print(start, start_direct, end)
         path = []
+        conflicting_agents = {} # (agent, number of conflicts)
         open_list = PriorityQueue()
         all_nodes = {}  # loc+dict, t
         parent={}
@@ -201,7 +189,7 @@ class pyMAPFPlanner:
 
         while not open_list.empty():
             n=open_list.get()
-            # if start==761: print("n=",n)
+            # print("n=",n)
             _, _, curr = n
         
             curr_location, curr_direction, curr_g, _ = curr
@@ -209,10 +197,7 @@ class pyMAPFPlanner:
             if (curr_location*4+curr_direction,curr_g) in all_nodes:
                 continue
             all_nodes[(curr_location*4+curr_direction,curr_g)]=curr
-            # if curr_location == end: 
-            if (curr_location == end and 
-                (curr_location,-1,self.time + curr[2] + 1) not in reservation and 
-                (curr_location,-1,self.time + curr[2] + 2) not in reservation):
+            if curr_location == end and (curr_location,-1,self.time + curr[2] + 1) not in reservation and (curr_location,-1,self.time + curr[2] + 2) not in reservation:
                 while True:
                     path.append((curr[0], curr[1]))
                     curr=parent[(curr[0]*4+curr[1],curr[2])]
@@ -228,21 +213,27 @@ class pyMAPFPlanner:
             for neighbor in neighbors:
                 neighbor_location, neighbor_direction = neighbor
 
-                potential_conflicting_agent = reservation.get((neighbor_location, -1, self.time + curr[2] + 1))
-                if potential_conflicting_agent is not None:
-                    if len(conflicting_agents) > 0 and conflicting_agents.get(potential_conflicting_agent) is not None:
-                        conflicting_agents[potential_conflicting_agent] = conflicting_agents[potential_conflicting_agent] + 1
-                    else:
-                        conflicting_agents[potential_conflicting_agent] = 1
+                if (neighbor_location, -1, curr[2] + 1) in reservation:
                     continue
 
-                potential_conflicting_agent = reservation.get((neighbor_location, curr_location, self.time + curr[2] + 1))
-                if potential_conflicting_agent is not None:
-                    if len(conflicting_agents) > 0 and conflicting_agents.get(potential_conflicting_agent) is not None:
-                        conflicting_agents[potential_conflicting_agent] = conflicting_agents[potential_conflicting_agent] + 1
-                    else:
-                        conflicting_agents[potential_conflicting_agent] = 1
+                if (neighbor_location, curr_location, curr[2] + 1) in reservation:
                     continue
+
+                # potential_conflicting_agent = reservation.get((neighbor_location, -1, self.time + curr[2] + 1))
+                # if potential_conflicting_agent is not None:
+                #     if len(conflicting_agents) > 0 and conflicting_agents.get(potential_conflicting_agent) is not None:
+                #         conflicting_agents[potential_conflicting_agent] = conflicting_agents[potential_conflicting_agent] + 1
+                #     else:
+                #         conflicting_agents[potential_conflicting_agent] = 1
+                #     continue
+
+                # potential_conflicting_agent = reservation.get((neighbor_location, curr_location, self.time + curr[2] + 1))
+                # if potential_conflicting_agent is not None:
+                #     if len(conflicting_agents) > 0 and conflicting_agents.get(potential_conflicting_agent) is not None:
+                #         conflicting_agents[potential_conflicting_agent] = conflicting_agents[potential_conflicting_agent] + 1
+                #     else:
+                #         conflicting_agents[potential_conflicting_agent] = 1
+                #     continue
 
                 neighbor_key = (neighbor_location * 4 +
                                 neighbor_direction, curr[2] + 1)
@@ -261,26 +252,15 @@ class pyMAPFPlanner:
                     parent[(neighbor_location * 4 +
                             neighbor_direction, next_node[2])]=curr
 
-        # for v in path:
-        #     print(f"({v[0]},{v[1]}), ", end="")
-        # print()
-        if len(conflicting_agents) > 0: 
-            potential_max_agent = max(conflicting_agents, key=conflicting_agents.get)
-            if conflicting_agents[potential_max_agent] > 0.3 * len(path):
-                max_agent = potential_max_agent
-        return path, max_agent
+        for v in path:
+            print(f"({v[0]},{v[1]}), ", end="")
+        print()
+        return path
 
     def sample_priority_planner(self,time_limit:int):
         actions = [MAPF.Action.W] * len(self.env.curr_states)
-        # self.reservation = set()  # loc1, loc2, t
-
-        # ### initial reservation makes no sense, because the agent blocks itself
-        # if self.time == 0:
-        #     for i in range(self.env.num_of_agents):
-        #         # print("starting initital reservation for agent", i)
-        #         self.reservation.add((self.env.curr_states[i].location, -1, self.time+1))
-        #         self.reservation.add((self.env.curr_states[i].location, -1, self.time+2))
-        # ### initial reservation makes no sense, because the agent blocks itself
+        reservation = set()  # loc1, loc2, t
+        conflicts = set()   # Store conflicts as (agent_id, time_step)
 
         self.init_agent_map()
 
@@ -291,85 +271,39 @@ class pyMAPFPlanner:
         sorted_agents = [agent_id for agent_id, _ in sorted(manhattan_distances, key=lambda x: x[1])]
 
         for i in sorted_agents:
-            # print("start plan for agent", i)
+            print("start plan for agent", i)
             path = []
             if not self.env.goal_locations[i]:
                 print(", which does not have any goal left.")
                 path.append((self.env.curr_states[i].location, self.env.curr_states[i].orientation))
-                self.reserve_path(path,i)
+                for p in path:
+                    reservation.add((self.env.curr_states[i].location, p[0], 1))
+                #reservation.add((self.env.curr_states[i].location, -1, 1))
 
         for i in sorted_agents:
-            if self.paths[i] == []:
-                # print("start plan for agent", i)
-                path = []
-                if self.env.goal_locations[i]:
-                    path , max_agent = self.space_time_plan(
-                        self.env.curr_states[i].location,
-                        self.env.curr_states[i].orientation,
-                        self.env.goal_locations[i][0][0],
-                        self.reservation
-                    )
+            print("start plan for agent", i)
+            #if self.paths[i] == []:
+            path = []
+            if self.env.goal_locations[i]:
+                print("with start and goal:")
+                path = self.space_time_plan(
+                    self.env.curr_states[i].location,
+                    self.env.curr_states[i].orientation,
+                    self.env.goal_locations[i][0][0],
+                    reservation
+                )
                 self.paths[i] = path.copy()
-                # reserve the newly created path
-                self.reserve_path(path,i)
-                
-                # check if there is another agent with lots of conflicts
-                if max_agent >= 0:
-                    # print("cancelling ", max_agent, " for ", i)
-                    #cancel the path of that agent by first removing the reservations, and then empty the path
-                    # remove reservations
-                    path = self.paths[max_agent].copy()
-                    self.remove_reservations(path)
-                    self.paths[max_agent] = []
-                    # plan a path again for agent i after removing the previous reservations
-                    path = self.paths[i].copy()
-                    self.remove_reservations(path)
-                    self.paths[i] = []
-                    if self.env.goal_locations[i]:
-                        path , _ = self.space_time_plan(
-                            self.env.curr_states[i].location,
-                            self.env.curr_states[i].orientation,
-                            self.env.goal_locations[i][0][0],
-                            self.reservation
-                        )
-                    self.paths[i] = path.copy()
-                    # reserve the newly created path
-                    self.reserve_path(path,i)
-                    # if the other agent had a higher priority, then plan a new path for it
-                    if max_agent < i:
-                        path = []
-                        if self.env.goal_locations[max_agent]:
-                            # print("with start and goal:")
-                            path , _ = self.space_time_plan(
-                                self.env.curr_states[max_agent].location,
-                                self.env.curr_states[max_agent].orientation,
-                                self.env.goal_locations[max_agent][0][0],
-                                self.reservation
-                            )
-                        self.paths[max_agent] = path.copy()
-                        # reserve the newly created path
-                        self.reserve_path(path,max_agent)
-
-        self.vertex_conflict = [0] * len(self.env.map)
-        self.edge_conflict = [-1] * len(self.env.map)
-        found = self.find_conflicts()
-        while found:
-            for i in self.conflicts:
-                path = self.paths[i].copy()
-                # remove reservations
-                self.remove_reservations(path)
-                next_orientation = self.env.curr_states[i].orientation + 1
-                if next_orientation > 3: next_orientation = 0
-                path = []
-                path.append((self.env.curr_states[i].location, next_orientation))
-                self.paths[i] = path.copy()
-                self.reserve_path(path,i)
-            found = self.find_conflicts()
-
-        for i in range(self.env.num_of_agents):
-            path = self.paths[i]
+                last_loc = -1
+                t = 1
+                for p in path:
+                    reservation.add((p[0], -1, t))
+                    if last_loc != -1:
+                        reservation.add((last_loc, p[0], t))
+                    last_loc = p[0]
+                    t += 1
+            
             if path:
-                # print("current location:", path[0][0], "current direction:", path[0][1])
+                print("current location:", path[0][0], "current direction:", path[0][1])
                 if path[0][0] != self.env.curr_states[i].location:
                     actions[i] = MAPF.Action.FW
                 elif path[0][1] != self.env.curr_states[i].orientation:
@@ -378,14 +312,53 @@ class pyMAPFPlanner:
                         actions[i] = MAPF.Action.CR
                     elif incr == -1 or incr == 3:
                         actions[i] = MAPF.Action.CCR
-                # if i == 13: print("agent 13 action: ", actions[i])
 
-            if len(self.paths[i]) > 0: 
-                self.paths[i].pop(0)
+                last_loc = -1
+                t = 1
+                for p in path:
+                    reservation.add((p[0], -1, t))
+                    if last_loc != -1:
+                        reservation.add((last_loc, p[0], t))
+                    last_loc = p[0]
+                    t += 1
+
+        self.vertex_conflict = [0] * len(self.env.map)
+        self.edge_conflict = [-1] * len(self.env.map)
+        found = self.find_conflicts(conflicts)
+
+        while found:
+            for i in self.conflicts:
+                path = self.paths[i].copy()
+                # remove reservations
+                last_loc = -1
+                t = 1
+                for p in path:
+                    reservation.remove((p[0], -1, t))
+                    if last_loc != -1:
+                        reservation.remove((last_loc, p[0], t))
+                    last_loc = p[0]
+                    t += 1
+                next_orientation = self.env.curr_states[i].orientation + 1
+                if next_orientation > 3: next_orientation = 0
+                path = []
+                path.append((self.env.curr_states[i].location, next_orientation))
+                self.paths[i] = path.copy()
+                last_loc = -1
+                t = 1
+                for p in path:
+                    reservation.add((p[0], -1, t))
+                    if last_loc != -1:
+                        reservation.add((last_loc, p[0], t))
+                    last_loc = p[0]
+                    t += 1
+                #self.reserve_path(path,i)
+            found = self.find_conflicts(conflicts)
+
+        print('after found')
 
         return actions
-
-    def find_conflicts(self) -> bool:
+    
+    def find_conflicts(self, conflicts) -> bool:
         self.conflicts.clear()
         found = False
         surrounding_agents = list()
@@ -418,86 +391,26 @@ class pyMAPFPlanner:
                         found = True
             # if found: break
         return found
+    
+    # def reserve_path(self, path:List[Tuple[int, int]], agent:int):
+    #     last_loc = -1
+    #     t = 1
+    #     for p in path:
+    #         self.reservation[(p[0], -1, self.time + t)] = agent
+    #         if last_loc != -1:
+    #             self.reservation[(last_loc, p[0], self.time + t)] = agent
+    #         last_loc = p[0]
+    #         t += 1
 
-    def reserve_path(self, path:List[Tuple[int, int]], agent:int):
-        last_loc = -1
-        t = 1
-        for p in path:
-            self.reservation[(p[0], -1, self.time + t)] = agent
-            if last_loc != -1:
-                self.reservation[(last_loc, p[0], self.time + t)] = agent
-            last_loc = p[0]
-            t += 1
-
-    def remove_reservations(self, path:List[Tuple[int, int]]):
-        last_loc = -1
-        t = 1
-        for p in path:
-            self.reservation.pop((p[0], -1, self.time + t))
-            if last_loc != -1:
-                self.reservation.pop((last_loc, p[0], self.time + t))
-            last_loc = p[0]
-            t += 1
-
-
-# class pyMAPFEnvironment:
-
-#     def __init__(self, pyenv=None) -> None:
-#         if pyenv is not None:
-#             self.environment = pyenv.env
-
-
-#     def initialize(self):
-#         self.domain_name = ""
-#         print(self.environment.rows)
-#         print(self.environment.cols)
-#         print(self.environment.num_of_agents)
-
-#         if self.environment.rows == 32: self.domain_name = '/random'
-#         if self.environment.rows == 33: self.domain_name = '/wh_small'
-#         if self.environment.rows == 481: self.domain_name = '/game'
-#         if self.environment.rows == 256: self.domain_name = '/paris'
-#         if self.environment.rows == 140 and self.environment.map[9] == 1: self.domain_name = '/wh_large'
-#         if self.environment.rows == 140 and self.environment.map[9] == 0: self.domain_name = '/sortation'
-#         print("domain name: " + self.domain_name)
-
-#         filename = self.environment.file_storage_path + self.domain_name + '_map.npy'
-#         print(filename)
-#         self.own_map = np.load(filename)
-#         print("map loaded")
-
-#         self.own_num_of_agents = copy.deepcopy(self.environment.num_of_agents)
-#         self.own_cols = copy.deepcopy(self.environment.cols)
-#         self.own_rows = copy.deepcopy(self.environment.rows)
-
-#         return
-
-#     @property
-#     def num_of_agents(self):
-#         return self.own_num_of_agents
-
-#     @property
-#     def curr_states(self):
-#         return self.environment.curr_states
-
-#     @property
-#     def goal_locations(self):
-#         return self.environment.goal_locations
-
-#     @property
-#     def cols(self):
-#         return self.own_cols
-
-#     @property
-#     def rows(self):
-#         return self.own_rows
-
-#     @property
-#     def map(self):
-#         return self.own_map
-#         # return self.environment.map
-
-
+    # def remove_reservations(self, path:List[Tuple[int, int]]):
+    #     last_loc = -1
+    #     t = 1
+    #     for p in path:
+    #         self.reservation.pop((p[0], -1, self.time + t))
+    #         if last_loc != -1:
+    #             self.reservation.pop((last_loc, p[0], self.time + t))
+    #         last_loc = p[0]
+    #         t += 1
 
 if __name__ == "__main__":
     test_planner = pyMAPFPlanner()
