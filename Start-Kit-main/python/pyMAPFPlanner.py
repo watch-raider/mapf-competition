@@ -4,6 +4,7 @@ from typing import Dict, List, Tuple,Set
 from queue import PriorityQueue
 import numpy as np
 import copy
+import random
 
 # 0=Action.FW, 1=Action.CR, 2=Action.CCR, 3=Action.W
 
@@ -116,22 +117,19 @@ class pyMAPFPlanner:
         # print("debug!!!!!!!", neighbors)
         return neighbors
 
-    def space_time_plan(self,start: int, start_direct: int, end: int, reservation )-> Tuple[List[Tuple[int, int]] , int]:
-        # print(start, start_direct, end)
+    def space_time_plan(self, start: int, start_direct: int, end: int, reservation) -> Tuple[List[Tuple[int, int]], int]:
         max_agent = -1
         conflicting_agents = {} # (agent, number of conflicts)
         path = []
-        open_list = PriorityQueue()
+        open_list = PriorityQueueBinaryHeap()  # Use the binary heap here
         all_nodes = {}  # loc+dict, t
         parent={}
         s = (start, start_direct, 0, self.getManhattanDistance(start, end))
-        open_list.put((s[3], id(s), s))
-        # all_nodes[(start * 4 + start_direct, 0)] = s
+        open_list.push((s[3], id(s), s))  # Use push method of PriorityQueueBinaryHeap
         parent[(start * 4 + start_direct, 0)]=None
 
-        while not open_list.empty():
-            n=open_list.get()
-            # if start==761: print("n=",n)
+        while not open_list.is_empty():  # Use is_empty method of PriorityQueueBinaryHeap
+            n = open_list.pop()  # Use pop method of PriorityQueueBinaryHeap
             _, _, curr = n
         
             curr_location, curr_direction, curr_g, _ = curr
@@ -139,7 +137,6 @@ class pyMAPFPlanner:
             if (curr_location*4+curr_direction,curr_g) in all_nodes:
                 continue
             all_nodes[(curr_location*4+curr_direction,curr_g)]=curr
-            # if curr_location == end: 
             if (curr_location == end and 
                 (curr_location,-1,self.time + curr[2] + 1) not in reservation and 
                 (curr_location,-1,self.time + curr[2] + 2) not in reservation):
@@ -148,11 +145,10 @@ class pyMAPFPlanner:
                     curr=parent[(curr[0]*4+curr[1],curr[2])]
                     if curr is None:
                         break
-                    # curr = curr[5]
                 path.pop()
                 path.reverse()
                 break
-            
+
             neighbors = self.getNeighbors(curr_location, curr_direction)
 
             for neighbor in neighbors:
@@ -174,8 +170,7 @@ class pyMAPFPlanner:
                         conflicting_agents[potential_conflicting_agent] = 1
                     continue
 
-                neighbor_key = (neighbor_location * 4 +
-                                neighbor_direction, curr[2] + 1)
+                neighbor_key = (neighbor_location * 4 + neighbor_direction, curr[2] + 1)
 
                 if neighbor_key in all_nodes:
                     old = all_nodes[neighbor_key]
@@ -184,21 +179,17 @@ class pyMAPFPlanner:
                 else:
                     next_node = (neighbor_location, neighbor_direction, curr_g + 1,
                                 self.getManhattanDistance(neighbor_location, end))
-        
-                    open_list.put(
-                        (next_node[3] + next_node[2], id(next_node), next_node))
-                
-                    parent[(neighbor_location * 4 +
-                            neighbor_direction, next_node[2])]=curr
 
-        # for v in path:
-        #     print(f"({v[0]},{v[1]}), ", end="")
-        # print()
-        if len(conflicting_agents) > 0: 
+                    open_list.push((next_node[3] + next_node[2], id(next_node), next_node))  # Use push method of PriorityQueueBinaryHeap
+                    
+                    parent[(neighbor_location * 4 + neighbor_direction, next_node[2])] = curr
+
+        if len(conflicting_agents) > 0:
             potential_max_agent = max(conflicting_agents, key=conflicting_agents.get)
             if conflicting_agents[potential_max_agent] > 0.3 * len(path):
                 max_agent = potential_max_agent
         return path, max_agent
+
 
     def sample_priority_planner(self,time_limit:int):
         actions = [MAPF.Action.W] * len(self.env.curr_states)
@@ -215,12 +206,32 @@ class pyMAPFPlanner:
         self.init_agent_map()
 
         # Calculate Manhattan distance of each agent from its goal
-        manhattan_distances = [(i, self.getManhattanDistance(self.env.curr_states[i].location, self.env.goal_locations[i][0][0])) for i in range(self.env.num_of_agents)]
-
+        manhattan_distances = np.array([
+            (i, self.getManhattanDistance(self.env.curr_states[i].location, self.env.goal_locations[i][0][0])) 
+             for i in range(self.env.num_of_agents)])
+        
         # Sort agents based on their Manhattan distances in ascending order
-        sorted_agents = [agent_id for agent_id, _ in sorted(manhattan_distances, key=lambda x: x[1])]
+        sorted_agents = np.array([agent_id for agent_id, _ in sorted(manhattan_distances, key=lambda x: x[1])])
 
-        for i in sorted_agents:
+        # Create priority order for planning paths of agents
+        # Epsilon used 
+        # 80% chance the agent with the lowest distance to goal will be given priority
+        # 20% chance agent will be randomly chosen from list
+        # This allows opportunity for agents to be higher up priority list even if they never have smallest distance to goal
+        sorted_agents_ep = np.empty(len(sorted_agents), dtype=int)
+
+        for i in range(0, len(manhattan_distances) - 1):
+            epsilon = 0.8
+            rand_int = random.uniform(0, 1)
+            if epsilon >= rand_int:
+                sorted_agents_ep[i] = sorted_agents[0]
+                sorted_agents = np.delete(sorted_agents, 0)
+            else:
+                random_agent_i = random.randint(0, len(sorted_agents) - 1)
+                sorted_agents_ep[i] = sorted_agents[random_agent_i]
+                sorted_agents = np.delete(sorted_agents, random_agent_i)
+
+        for i in sorted_agents_ep:
             # print("start plan for agent", i)
             path = []
             if not self.env.goal_locations[i]:
@@ -228,7 +239,7 @@ class pyMAPFPlanner:
                 path.append((self.env.curr_states[i].location, self.env.curr_states[i].orientation))
                 self.reserve_path(path,i)
 
-        for i in sorted_agents:
+        for i in sorted_agents_ep:
             if self.paths[i] == []:
                 # print("start plan for agent", i)
                 path = []
@@ -368,6 +379,63 @@ class pyMAPFPlanner:
                 self.reservation.pop((last_loc, p[0], self.time + t))
             last_loc = p[0]
             t += 1
+
+class PriorityQueueBinaryHeap:
+    def __init__(self):
+        self.heap = []
+
+    def push(self, item):
+        self.heap.append(item)
+        self._percolate_up(len(self.heap) - 1)
+
+    def pop(self):
+        if len(self.heap) == 0:
+            raise IndexError("pop from an empty priority queue")
+        if len(self.heap) == 1:
+            return self.heap.pop()
+
+        top_item = self.heap[0]
+        self.heap[0] = self.heap.pop()
+        self._percolate_down(0)
+        return top_item
+
+    def _percolate_up(self, index):
+        while index > 0:
+            parent_index = (index - 1) // 2
+            if self.heap[index][0] < self.heap[parent_index][0]:
+                self.heap[index], self.heap[parent_index] = self.heap[parent_index], self.heap[index]
+                index = parent_index
+            else:
+                break
+
+    def _percolate_down(self, index):
+        while True:
+            left_child_index = 2 * index + 1
+            right_child_index = 2 * index + 2
+            smallest = index
+
+            if left_child_index < len(self.heap) and self.heap[left_child_index][0] < self.heap[smallest][0]:
+                smallest = left_child_index
+            if right_child_index < len(self.heap) and self.heap[right_child_index][0] < self.heap[smallest][0]:
+                smallest = right_child_index
+
+            if smallest != index:
+                self.heap[index], self.heap[smallest] = self.heap[smallest], self.heap[index]
+                index = smallest
+            else:
+                break
+
+    def is_empty(self):
+        return len(self.heap) == 0
+
+    def peek(self):
+        if len(self.heap) == 0:
+            raise IndexError("peek from an empty priority queue")
+        return self.heap[0]
+
+    def __len__(self):
+        return len(self.heap)
+
 
 
 if __name__ == "__main__":
